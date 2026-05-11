@@ -536,8 +536,28 @@ section{padding:5rem 2rem}
 </section>
 
 
-<script>
-// Stars — two tones, white and pale purple
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
+import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp }
+  from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
+
+// ── Firebase config ──────────────────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyA8VwNkFJE14SRs88rIKRvlE6MWze5WDSg",
+  authDomain: "mandir-e64c5.firebaseapp.com",
+  projectId: "mandir-e64c5",
+  storageBucket: "mandir-e64c5.firebasestorage.app",
+  messagingSenderId: "81208512746",
+  appId: "1:81208512746:web:860b795e3a6d3f59304793",
+  measurementId: "G-6D4BJ8GKF3"
+};
+
+const app = initializeApp(firebaseConfig);
+const db  = getFirestore(app);
+const COLLECTION = "gauri_letters";
+
+// ── Stars — two tones, white and pale purple ─────────────────────────────────
 const starsEl=document.getElementById('stars');
 for(let i=0;i<160;i++){
   const s=document.createElement('div');s.className='star';
@@ -547,7 +567,7 @@ for(let i=0;i<160;i++){
   starsEl.appendChild(s);
 }
 
-// Cosmos stars in overlay
+// ── Cosmos stars in overlay ──────────────────────────────────────────────────
 const cb=document.getElementById('cosmosBg');
 for(let i=0;i<80;i++){
   const s=document.createElement('div');
@@ -556,11 +576,11 @@ for(let i=0;i<80;i++){
   cb.appendChild(s);
 }
 
-// Fade-in observer
+// ── Fade-in observer ─────────────────────────────────────────────────────────
 const obs=new IntersectionObserver(entries=>entries.forEach(e=>{if(e.isIntersecting)e.target.classList.add('visible')}),{threshold:0.12});
 document.querySelectorAll('.fade-in').forEach(el=>obs.observe(el));
 
-// Tabs
+// ── Tabs ─────────────────────────────────────────────────────────────────────
 let currentTo='Baba';
 document.querySelectorAll('.tab').forEach(tab=>{
   tab.addEventListener('click',()=>{
@@ -572,7 +592,7 @@ document.querySelectorAll('.tab').forEach(tab=>{
   });
 });
 
-// Filter
+// ── Filter ───────────────────────────────────────────────────────────────────
 let currentFilter='all';
 document.querySelectorAll('.filter-btn').forEach(btn=>{
   btn.addEventListener('click',()=>{
@@ -583,44 +603,63 @@ document.querySelectorAll('.filter-btn').forEach(btn=>{
   });
 });
 
-// Storage
-const STORE='gauri_letters_v4';
-let letters=JSON.parse(localStorage.getItem(STORE)||'[]');
-renderLetters();
-updateBadge();
+// ── In-memory letters array (kept in sync by Firestore listener) ─────────────
+let letters = [];
 
-// Send
-document.getElementById('sendBtn').addEventListener('click',()=>{
-  const text=document.getElementById('letterText').value.trim();
-  if(!text)return;
-  const sig=document.getElementById('sigField').value.trim()||'Gauri';
-
-  const overlay=document.getElementById('planeOverlay');
-  document.getElementById('planeToText').textContent=`Flying to ${currentTo} ✈`;
-  const old=document.getElementById('planeSvg');
-  const fresh=old.cloneNode(true);old.parentNode.replaceChild(fresh,old);
-  overlay.classList.add('active');
-
-  setTimeout(()=>{
-    overlay.classList.remove('active');
-    const letter={
-      id:Date.now(),to:currentTo,text,sig,
-      date:new Date().toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'})
-    };
-    letters.unshift(letter);
-    localStorage.setItem(STORE,JSON.stringify(letters));
-    document.getElementById('letterText').value='';
-    renderLetters();updateBadge();
-    document.getElementById('lettersSection').scrollIntoView({behavior:'smooth',block:'start'});
-  },3900);
+// ── Real-time Firestore listener ─────────────────────────────────────────────
+const q = query(collection(db, COLLECTION), orderBy("createdAt", "desc"));
+onSnapshot(q, (snapshot) => {
+  letters = snapshot.docs.map(doc => ({ firestoreId: doc.id, ...doc.data() }));
+  renderLetters();
+  updateBadge();
+}, (err) => {
+  console.error("Firestore listen error:", err);
 });
 
+// ── Send ─────────────────────────────────────────────────────────────────────
+document.getElementById('sendBtn').addEventListener('click', async () => {
+  const text = document.getElementById('letterText').value.trim();
+  if (!text) return;
+  const sig = document.getElementById('sigField').value.trim() || 'Gauri';
+
+  const overlay = document.getElementById('planeOverlay');
+  document.getElementById('planeToText').textContent = `Flying to ${currentTo} ✈`;
+  const old = document.getElementById('planeSvg');
+  const fresh = old.cloneNode(true); old.parentNode.replaceChild(fresh, old);
+  overlay.classList.add('active');
+
+  // Capture values before clearing
+  const letterData = {
+    to: currentTo,
+    text,
+    sig,
+    date: new Date().toLocaleDateString('en-IN', {day:'numeric', month:'long', year:'numeric'}),
+    createdAt: serverTimestamp()
+  };
+
+  // Wait for the plane animation, then save to Firestore
+  setTimeout(async () => {
+    overlay.classList.remove('active');
+    try {
+      await addDoc(collection(db, COLLECTION), letterData);
+    } catch(e) {
+      console.error("Failed to save letter:", e);
+      alert("Couldn't save the letter — please check your internet connection and try again.");
+    }
+    document.getElementById('letterText').value = '';
+    // letters array & UI update via the onSnapshot listener above
+    document.getElementById('lettersSection').scrollIntoView({behavior:'smooth', block:'start'});
+  }, 3900);
+});
+
+// ── Badge ────────────────────────────────────────────────────────────────────
 function updateBadge(){
   const b=document.getElementById('lettersBadge');
   if(letters.length>0){b.textContent=letters.length;b.classList.add('show')}
   else b.classList.remove('show');
 }
 
+// ── Render ───────────────────────────────────────────────────────────────────
 function renderLetters(){
   const c=document.getElementById('lettersContainer');
   const filtered=currentFilter==='all'?letters:letters.filter(l=>l.to===currentFilter);
